@@ -370,11 +370,11 @@ tr.row-2top:hover td{background:#112844}tr.row-2bot:hover td{background:#1e1238}
         </div>
         <div id="klap-row-3" style="display:none;gap:8px;margin-bottom:9px">
           <button type="button" id="btn-klap3" onclick="toggle3Opt('klap')"
-            style="flex:1;padding:9px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:all .2s">
+            style="flex:1;padding:9px 8px;border-radius:6px;border:1px solid #3a3a3a;background:#1e1e1e;color:#a0a0a0;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s;box-shadow:none">
             กลับ (뒤집기) — 1개
           </button>
           <button type="button" id="btn-six3" onclick="toggle3Opt('six')"
-            style="flex:1;padding:9px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:all .2s">
+            style="flex:1;padding:9px 8px;border-radius:6px;border:1px solid #3a3a3a;background:#1e1e1e;color:#a0a0a0;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s;box-shadow:none">
             6 ทาง (6조합) — 6개
           </button>
         </div>
@@ -565,20 +565,19 @@ function stepAmt(dir){
 let mode3 = 'none'; // 'none' | 'klap' | 'six'
 
 function toggle3Opt(opt){
-  if(mode3===opt) mode3='none'; else mode3=opt;
+  mode3 = (mode3 === opt) ? 'none' : opt;
   update3Btns();
   onKlapChange();
 }
 function update3Btns(){
-  const bk=document.getElementById('btn-klap3');
-  const bs=document.getElementById('btn-six3');
-  if(!bk||!bs) return;
-  const selStyle='background:var(--accl);color:var(--acct);border-color:var(--acc)';
-  const defStyle='background:var(--bg2);color:var(--text2);border-color:var(--border2)';
-  bk.style.cssText=bk.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+/,'');
-  bs.style.cssText=bs.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+/,'');
-  if(mode3==='klap'){ bk.setAttribute('style', bk.getAttribute('style')+';background:var(--accl);color:var(--acct);border-color:var(--acc)'); }
-  if(mode3==='six'){  bs.setAttribute('style', bs.getAttribute('style')+';background:var(--accl);color:var(--acct);border-color:var(--acc)'); }
+  const bk = document.getElementById('btn-klap3');
+  const bs = document.getElementById('btn-six3');
+  if(!bk || !bs) return;
+  const BASE = 'flex:1;padding:9px 8px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s';
+  const SEL  = BASE + ';background:#0d3d2d;color:#5DCAA5;border:1px solid #1D9E75;box-shadow:inset 0 0 0 1px #1D9E75';
+  const DEF  = BASE + ';background:#1e1e1e;color:#a0a0a0;border:1px solid #3a3a3a;box-shadow:none';
+  bk.style.cssText = mode3==='klap' ? SEL : DEF;
+  bs.style.cssText = mode3==='six'  ? SEL : DEF;
 }
 
 function onNumInput(){ onKlapChange(); }
