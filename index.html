@@ -361,13 +361,24 @@ tr.row-2top:hover td{background:#112844}tr.row-2bot:hover td{background:#1e1238}
             </div>
           </div>
         </div>
-        <div class="klap-row">
+        <div class="klap-row" id="klap-row-2">
           <label>
             <input type="checkbox" id="inp-klap" onchange="onKlapChange()" checked/>
             กลับ (뒤집기 자동 추가)
           </label>
           <span class="klap-preview" id="klap-preview" style="display:none"></span>
         </div>
+        <div id="klap-row-3" style="display:none;gap:8px;margin-bottom:9px">
+          <button type="button" id="btn-klap3" onclick="toggle3Opt('klap')"
+            style="flex:1;padding:9px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:all .2s">
+            กลับ (뒤집기) — 1개
+          </button>
+          <button type="button" id="btn-six3" onclick="toggle3Opt('six')"
+            style="flex:1;padding:9px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:all .2s">
+            6 ทาง (6조합) — 6개
+          </button>
+        </div>
+        <div id="klap3-preview" style="display:none;margin-bottom:9px;background:var(--accl);border:1px solid var(--acc);border-radius:6px;padding:7px 10px;font-size:11px;color:var(--acct);line-height:1.7"></div>
         <button class="btn btn-primary" id="add-btn" onclick="tryAddEntry()">+ เพิ่ม (추가)</button>
       </div>
       <div class="summary-grid">
@@ -551,19 +562,74 @@ function stepAmt(dir){
   const step=currentCurrency==='THB'?10:1000;
   el.value=Math.max(0,(parseFloat(el.value)||0)+dir*step);
 }
+let mode3 = 'none'; // 'none' | 'klap' | 'six'
+
+function toggle3Opt(opt){
+  if(mode3===opt) mode3='none'; else mode3=opt;
+  update3Btns();
+  onKlapChange();
+}
+function update3Btns(){
+  const bk=document.getElementById('btn-klap3');
+  const bs=document.getElementById('btn-six3');
+  if(!bk||!bs) return;
+  const selStyle='background:var(--accl);color:var(--acct);border-color:var(--acc)';
+  const defStyle='background:var(--bg2);color:var(--text2);border-color:var(--border2)';
+  bk.style.cssText=bk.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+/,'');
+  bs.style.cssText=bs.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+/,'');
+  if(mode3==='klap'){ bk.setAttribute('style', bk.getAttribute('style')+';background:var(--accl);color:var(--acct);border-color:var(--acc)'); }
+  if(mode3==='six'){  bs.setAttribute('style', bs.getAttribute('style')+';background:var(--accl);color:var(--acct);border-color:var(--acc)'); }
+}
+
 function onNumInput(){ onKlapChange(); }
 function onKlapChange(){
   const raw=document.getElementById('inp-num').value.trim();
   const klap=document.getElementById('inp-klap').checked;
   const type=document.getElementById('inp-type').value;
-  const prev=document.getElementById('klap-preview');
   const is3=type==='3top';
   const num=(!is3&&raw.length===1)?'0'+raw:raw;
-  if(klap&&num.length===(is3?3:2)){
-    const f=flipNum(num);
-    prev.style.display='inline-block';
-    prev.textContent=f!==num?(type==='2both'?`+ กลับ ${f} (위+아래)`:`+ กลับ ${f}`):'(동일번호)';
-  } else { prev.style.display='none'; }
+
+  // 2자리 전용 row / 3자리 전용 row 전환
+  const row2=document.getElementById('klap-row-2');
+  const row3=document.getElementById('klap-row-3');
+  if(row2) row2.style.display=is3?'none':'flex';
+  if(row3) row3.style.display=is3?'flex':'none';
+
+  const prev2=document.getElementById('klap-preview');
+  const prev3=document.getElementById('klap3-preview');
+
+  if(!is3){
+    // 2자리 뒤집기 미리보기
+    if(klap&&num.length===2){
+      const f=flipNum(num);
+      prev2.style.display='inline-block';
+      prev2.textContent=f!==num?(type==='2both'?`+ กลับ ${f} (위+아래)`:`+ กลับ ${f}`):'(동일번호)';
+    } else { prev2.style.display='none'; }
+    if(prev3) prev3.style.display='none';
+  } else {
+    // 3자리 미리보기
+    prev2.style.display='none';
+    if(num.length===3 && mode3!=='none' && prev3){
+      if(mode3==='klap'){
+        const f=flipNum(num);
+        prev3.style.display='block';
+        prev3.innerHTML=f!==num?`กลับ: <strong>${num}</strong> + <strong>${f}</strong>`:`<strong>${num}</strong> (동일번호)`;
+      } else if(mode3==='six'){
+        const combos=get6Combos(num);
+        prev3.style.display='block';
+        prev3.innerHTML='6 ทาง: '+combos.map(c=>`<strong>${c}</strong>`).join(' · ');
+      }
+    } else if(prev3){ prev3.style.display='none'; }
+  }
+}
+
+function get6Combos(num){
+  const d=[num[0],num[1],num[2]];
+  const s=new Set();
+  [0,1,2].forEach(a=>[0,1,2].forEach(b=>[0,1,2].forEach(c=>{
+    if(a!==b&&b!==c&&a!==c) s.add(d[a]+d[b]+d[c]);
+  })));
+  return [...s].sort();
 }
 
 function showModal(title,sub){
@@ -598,13 +664,30 @@ async function tryAddEntry(){
   if(is3&&num.length!==3){alert('3ตัวบน는 3자리 번호입니다.');return;}
   if(!is3&&num.length!==2){alert('2자리 번호를 입력하세요.');return;}
   const day=getDay();
-  const klapNum=klap?flipNum(num):null;
-  const klapDiff=klapNum&&klapNum!==num;
+  // 추가할 번호 목록 계산
+  let numsToAdd=[];
+  if(is3){
+    if(mode3==='six'){
+      numsToAdd=get6Combos(num).map(n=>({num:n,klap:n!==num}));
+    } else if(mode3==='klap'){
+      const f=flipNum(num);
+      numsToAdd=[{num,klap:false}];
+      if(f!==num) numsToAdd.push({num:f,klap:true,klapOf:num});
+    } else {
+      numsToAdd=[{num,klap:false}];
+    }
+  } else {
+    const klapNum=klap?flipNum(num):null;
+    const klapDiff=klapNum&&klapNum!==num;
+    numsToAdd=[{num,klap:false}];
+    if(klapDiff) numsToAdd.push({num:klapNum,klap:true,klapOf:num});
+  }
   const typesToAdd=type==='2both'?['2top','2bot']:[type];
+  // 중복 체크
   let dupes=[];
   for(const t of typesToAdd){
     const existNums=day.filter(e=>e.name===name&&e.type===t&&(e.sess||'sp')===sess).map(e=>e.num);
-    [num,...(klapDiff?[klapNum]:[])].forEach(n=>{
+    numsToAdd.forEach(({num:n})=>{
       if(existNums.includes(n)&&!dupes.includes(t+'|'+n)) dupes.push(t+'|'+n);
     });
   }
@@ -619,8 +702,9 @@ async function tryAddEntry(){
   }
   let id=Date.now();
   for(const t of typesToAdd){
-    day.push({id:id++,name,type:t,num,amt,cur,sess,klap:false});
-    if(klapDiff) day.push({id:id++,name,type:t,num:klapNum,amt,cur,sess,klap:true,klapOf:num});
+    numsToAdd.forEach(({num:n,klap:kl,klapOf:ko})=>{
+      day.push({id:id++,name,type:t,num:n,amt,cur,sess,klap:kl,...(ko?{klapOf:ko}:{})});
+    });
   }
   saveData();
   document.getElementById('inp-num').value='';
