@@ -313,6 +313,7 @@ tr.row-2top:hover td{background:#112844}tr.row-2bot:hover td{background:#1e1238}
     <div class="tab active" onclick="switchTab('entry')">บันทึก (입력)</div>
     <div class="tab" onclick="switchTab('ledger')">บัญชี (장부)</div>
     <div class="tab" onclick="switchTab('receipt')">ใบเสร็จ (영수증)</div>
+    <div class="tab" onclick="switchTab('summary')">สรุป (영수증 요약)</div>
     <div class="tab" onclick="switchTab('result')">รางวัล (당첨)</div>
     <div class="tab" onclick="switchTab('analysis')">สถิติ (번호현황)</div>
     <div class="tab" onclick="switchTab('graph')">กราฟ (매출그래프)</div>
@@ -327,6 +328,8 @@ tr.row-2top:hover td{background:#112844}tr.row-2bot:hover td{background:#1e1238}
         <button onclick="document.getElementById('install-banner').classList.remove('show')">닫기</button>
       </div>
       <div id="entry-sess-chip"></div>
+      <div class="entry-pc-wrap">
+      <div class="entry-pc-left">
       <div class="card">
         <div class="form-row">
           <div class="form-group">
@@ -381,6 +384,8 @@ tr.row-2top:hover td{background:#112844}tr.row-2bot:hover td{background:#1e1238}
         <div id="klap3-preview" style="display:none;margin-bottom:9px;background:var(--accl);border:1px solid var(--acc);border-radius:6px;padding:7px 10px;font-size:11px;color:var(--acct);line-height:1.7"></div>
         <button class="btn btn-primary" id="add-btn" onclick="tryAddEntry()">+ เพิ่ม (추가)</button>
       </div>
+      </div><!-- entry-pc-left -->
+      <div class="entry-pc-right">
       <div class="summary-grid">
         <div class="stat-card"><div class="lbl">ยอดรวม (건수)</div><div class="val" id="s-count">0</div></div>
         <div class="stat-card"><div class="lbl">ยอดขาย ₩</div><div class="val green" id="s-krw">₩0</div></div>
@@ -393,6 +398,8 @@ tr.row-2top:hover td{background:#112844}tr.row-2bot:hover td{background:#1e1238}
           <tbody id="entry-tbody"></tbody>
         </table>
       </div>
+      </div><!-- entry-pc-right -->
+      </div><!-- entry-pc-wrap -->
     </div>
 
     <!-- 장부 -->
@@ -420,6 +427,13 @@ tr.row-2top:hover td{background:#112844}tr.row-2bot:hover td{background:#1e1238}
       </div>
       <div class="sec-title">ใบเสร็จแยกตามผู้ซื้อ (구매자별 영수증)</div>
       <div id="receipt-list"></div>
+    </div>
+
+    <!-- 영수증 요약 -->
+    <div class="section" id="tab-summary">
+      <div id="summary-sess-chip"></div>
+      <div class="sec-title">สรุปใบเสร็จ (영수증 요약) — 할인율은 영수증 탭과 연동됩니다</div>
+      <div id="summary-list"></div>
     </div>
 
     <!-- 당첨 -->
@@ -520,7 +534,7 @@ function setSession(s){
   sndSession();
   // 현재 열린 탭 새로고침
   const active = document.querySelector('.tab.active');
-  const tabs = ['entry','ledger','receipt','result','analysis','graph'];
+  const tabs = ['entry','ledger','receipt','summary','result','analysis','graph'];
   const idx = [...document.querySelectorAll('.tab')].indexOf(active);
   if(idx>=0) refreshTab(tabs[idx]);
   render();
@@ -530,7 +544,7 @@ function switchTab(t){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(s=>s.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
-  const tabs=['entry','ledger','receipt','result','analysis','graph'];
+  const tabs=['entry','ledger','receipt','summary','result','analysis','graph'];
   document.querySelectorAll('.tab')[tabs.indexOf(t)].classList.add('active');
   sndTab();
   refreshTab(t);
@@ -540,6 +554,7 @@ function refreshTab(t){
   if(t==='entry') render();
   if(t==='ledger') renderLedger();
   if(t==='receipt') renderReceipt();
+  if(t==='summary') renderSummary();
   if(t==='result') renderResultChip();
   if(t==='analysis') renderAnalysis();
   if(t==='graph') renderGraph();
@@ -792,7 +807,8 @@ function renderReceipt(){
     const ce=entries.filter(e=>e.name===name&&e.cur===cur);
     const sub=ce.reduce((s,e)=>s+e.amt,0);
     const did='disc-'+name.replace(/\W/g,'')+'-'+cur;
-    const discPct=globalDiscount;
+    const savedPct = discountMap[discKey(name,cur)];
+    const discPct = savedPct !== undefined ? savedPct : globalDiscount;
     const discAmt=sub*discPct/100;
     const total=sub-discAmt;
     let sections='';
@@ -817,7 +833,7 @@ function renderReceipt(){
         <span class="rl">ส่วนลด (할인율)
           <input type="number" id="${did}" value="${discPct}" min="0" max="100" step="1" inputmode="numeric"
             style="width:42px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;padding:2px 5px;font-size:12px;color:var(--text1);margin:0 3px"
-            onchange="updateDiscount('${did}',${sub},'${cur}')"/> %
+            onchange="updateDiscount('${did}',${sub},'${cur}','${name}')"/> %
         </span>
         <span class="rv" id="${did}-val">- ${fmtAmt(discAmt,cur)}</span>
       </div>
@@ -833,11 +849,114 @@ function renderReceipt(){
   el.innerHTML=html;
 }
 
-function updateDiscount(id,sub,cur){
-  const pct=parseFloat(document.getElementById(id).value)||0;
-  const d=sub*pct/100;
-  const v=document.getElementById(id+'-val');const t=document.getElementById(id+'-total');
-  if(v)v.textContent='- '+fmtAmt(d,cur);if(t)t.textContent=fmtAmt(sub-d,cur);
+// 할인율 전역 상태 — {name|cur : pct}
+const discountMap = {};
+
+function discKey(name,cur){ return name+'|'+cur; }
+
+function updateDiscount(id, sub, cur, name){
+  const pct = parseFloat(document.getElementById(id).value)||0;
+  // 전역 맵 업데이트
+  discountMap[discKey(name,cur)] = pct;
+  const d = sub*pct/100;
+  const v = document.getElementById(id+'-val');
+  const t = document.getElementById(id+'-total');
+  if(v) v.textContent = '- '+fmtAmt(d,cur);
+  if(t) t.textContent = fmtAmt(sub-d,cur);
+  // 요약 탭도 동기화
+  const sv = document.getElementById('sum-val-'+id);
+  const st = document.getElementById('sum-tot-'+id);
+  const si = document.getElementById('sum-inp-'+id);
+  if(sv) sv.textContent = '- '+fmtAmt(d,cur);
+  if(st) st.textContent = fmtAmt(sub-d,cur);
+  if(si) si.value = pct;
+}
+
+function updateDiscountFromSummary(id, sub, cur, name){
+  const pct = parseFloat(document.getElementById('sum-inp-'+id).value)||0;
+  discountMap[discKey(name,cur)] = pct;
+  const d = sub*pct/100;
+  const sv = document.getElementById('sum-val-'+id);
+  const st = document.getElementById('sum-tot-'+id);
+  if(sv) sv.textContent = '- '+fmtAmt(d,cur);
+  if(st) st.textContent = fmtAmt(sub-d,cur);
+  // 영수증 탭도 동기화
+  const rv = document.getElementById(id+'-val');
+  const rt = document.getElementById(id+'-total');
+  const ri = document.getElementById(id);
+  if(rv) rv.textContent = '- '+fmtAmt(d,cur);
+  if(rt) rt.textContent = fmtAmt(sub-d,cur);
+  if(ri) ri.value = pct;
+}
+
+function renderSummary(){
+  if(document.getElementById('summary-sess-chip'))
+    document.getElementById('summary-sess-chip').innerHTML=sessChipHTML();
+  const entries=sessDayEntries();
+  const el=document.getElementById('summary-list');
+  if(!entries.length){el.innerHTML='<div class="empty">데이터가 없습니다.</div>';return;}
+  const globalDiscount=parseFloat(document.getElementById('global-discount').value)||0;
+
+  // 구매자×통화 목록
+  const keys=[];const seen=new Set();
+  entries.forEach(e=>{const k=`${e.name}|${e.cur}`;if(!seen.has(k)){seen.add(k);keys.push({name:e.name,cur:e.cur});}});
+
+  function makeCard(name, cur){
+    const ce=entries.filter(e=>e.name===name&&e.cur===cur);
+    const sub=ce.reduce((s,e)=>s+e.amt,0);
+    const did='disc-'+name.replace(/\W/g,'')+'-'+cur;
+    // 영수증 탭과 동기화된 할인율 사용
+    const savedPct=discountMap[discKey(name,cur)];
+    const discPct=savedPct!==undefined?savedPct:globalDiscount;
+    const discAmt=sub*discPct/100;
+    const total=sub-discAmt;
+
+    // 유형별 합계
+    const typeRows=['2top','2bot','3top'].map(t=>{
+      const items=ce.filter(e=>e.type===t);
+      if(!items.length) return '';
+      const tAmt=items.reduce((s,e)=>s+e.amt,0);
+      const tCount=items.length;
+      return `<div class="sum-type-row">
+        <span class="sum-type-label">${typeLabel(t)} <span style="font-size:10px;opacity:.6">${tCount}건</span></span>
+        <span class="sum-type-amt">${fmtAmt(tAmt,cur)}</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="sum-card">
+      <div class="sum-card-header">
+        <span class="sum-card-name">👤 ${name}</span>
+        <span class="badge ${cur==='THB'?'bthb':'bkrw'}">${cur}</span>
+      </div>
+      <div class="sum-card-body">
+        ${typeRows}
+        <div class="sum-type-row" style="border-top:1px solid var(--border);margin-top:5px;padding-top:5px">
+          <span class="sum-type-label">소계</span>
+          <span class="sum-type-amt">${fmtAmt(sub,cur)}</span>
+        </div>
+      </div>
+      <div class="sum-card-footer">
+        <div class="sum-disc-row">
+          <span>ส่วนลด</span>
+          <input type="number" id="sum-inp-${did}" value="${discPct}" min="0" max="100" step="1" inputmode="numeric"
+            onchange="updateDiscountFromSummary('${did}',${sub},'${cur}','${name}')"/>
+          <span>%</span>
+          <span style="margin-left:4px;color:var(--red)" id="sum-val-${did}">- ${fmtAmt(discAmt,cur)}</span>
+        </div>
+        <div class="sum-total-row">
+          <span class="sum-total-label">합계</span>
+          <span class="sum-total-amt" id="sum-tot-${did}">${fmtAmt(total,cur)}</span>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const krwKeys=keys.filter(k=>k.cur==='KRW');
+  const thbKeys=keys.filter(k=>k.cur==='THB');
+  let html='';
+  if(krwKeys.length) html+=`<div class="cur-section-label krw" style="margin-bottom:8px">₩ 원화 구매자</div><div class="summary-grid-cards">${krwKeys.map(k=>makeCard(k.name,k.cur)).join('')}</div>`;
+  if(thbKeys.length) html+=`<div class="cur-section-label thb" style="margin:8px 0">฿ 바트 구매자</div><div class="summary-grid-cards">${thbKeys.map(k=>makeCard(k.name,k.cur)).join('')}</div>`;
+  el.innerHTML=html;
 }
 
 function calcPayout(){
@@ -975,7 +1094,7 @@ function pickDate(dk){
   currentDate=new Date(dk+'T00:00:00');
   closeCal();
   // 현재 탭 새로고침
-  const tabs=['entry','ledger','receipt','result','analysis','graph'];
+  const tabs=['entry','ledger','receipt','summary','result','analysis','graph'];
   const active=[...document.querySelectorAll('.tab')].findIndex(el=>el.classList.contains('active'));
   if(active>=0) refreshTab(tabs[active]);
   render();
