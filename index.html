@@ -889,6 +889,9 @@ function updateDiscountFromSummary(id, sub, cur, name){
   if(ri) ri.value = pct;
 }
 
+// 당첨 결과 전역 저장 (calcPayout에서 채움)
+let payoutResult = {}; // {sess: {w2t, w2b, w3, r2, r3}}
+
 function renderSummary(){
   if(document.getElementById('summary-sess-chip'))
     document.getElementById('summary-sess-chip').innerHTML=sessChipHTML();
@@ -897,66 +900,114 @@ function renderSummary(){
   if(!entries.length){el.innerHTML='<div class="empty">데이터가 없습니다.</div>';return;}
   const globalDiscount=parseFloat(document.getElementById('global-discount').value)||0;
 
-  // 구매자×통화 목록
+  // 당첨 정보
+  const pw=payoutResult[currentSession]||{};
+  const w2t=pw.w2t||'';const w2b=pw.w2b||'';const w3=pw.w3||'';
+  const r2=pw.r2||70;const r3=pw.r3||500;
+
+  function isWin(e){
+    if(e.type==='2top'&&w2t&&e.num===w2t) return true;
+    if(e.type==='2bot'&&w2b&&e.num===w2b) return true;
+    if(e.type==='3top'&&w3&&e.num===w3) return true;
+    return false;
+  }
+  function payoutMult(e){
+    if(e.type==='2top'||e.type==='2bot') return r2;
+    return r3;
+  }
+
   const keys=[];const seen=new Set();
   entries.forEach(e=>{const k=`${e.name}|${e.cur}`;if(!seen.has(k)){seen.add(k);keys.push({name:e.name,cur:e.cur});}});
 
-  function makeCard(name, cur){
+  function makeBlock(name, cur){
     const ce=entries.filter(e=>e.name===name&&e.cur===cur);
     const sub=ce.reduce((s,e)=>s+e.amt,0);
     const did='disc-'+name.replace(/\W/g,'')+'-'+cur;
-    // 영수증 탭과 동기화된 할인율 사용
     const savedPct=discountMap[discKey(name,cur)];
     const discPct=savedPct!==undefined?savedPct:globalDiscount;
     const discAmt=sub*discPct/100;
     const total=sub-discAmt;
 
-    // 유형별 합계
-    const typeRows=['2top','2bot','3top'].map(t=>{
-      const items=ce.filter(e=>e.type===t);
-      if(!items.length) return '';
-      const tAmt=items.reduce((s,e)=>s+e.amt,0);
-      const tCount=items.length;
-      return `<div class="sum-type-row">
-        <span class="sum-type-label">${typeLabel(t)} <span style="font-size:10px;opacity:.6">${tCount}건</span></span>
-        <span class="sum-type-amt">${fmtAmt(tAmt,cur)}</span>
-      </div>`;
-    }).join('');
+    // 당첨금 계산
+    const winAmt=ce.filter(e=>isWin(e)).reduce((s,e)=>s+e.amt*payoutMult(e),0);
+    const profit=total-winAmt;
 
-    return `<div class="sum-card">
-      <div class="sum-card-header">
-        <span class="sum-card-name">👤 ${name}</span>
-        <span class="badge ${cur==='THB'?'bthb':'bkrw'}">${cur}</span>
-      </div>
-      <div class="sum-card-body">
-        ${typeRows}
-        <div class="sum-type-row" style="border-top:1px solid var(--border);margin-top:5px;padding-top:5px">
-          <span class="sum-type-label">소계</span>
-          <span class="sum-type-amt">${fmtAmt(sub,cur)}</span>
+    // 유형별 섹션
+    const TYPE_INFO=[
+      {key:'2top',cls:'t2top',title:'2ตัวบน'},
+      {key:'2bot',cls:'t2bot',title:'2ตัวล่าง'},
+      {key:'3top',cls:'t3top',title:'3ตัวบน'},
+    ];
+    let sections='';
+    TYPE_INFO.forEach(({key,cls,title})=>{
+      const items=ce.filter(e=>e.type===key);
+      if(!items.length) return;
+      const cells=items.map(e=>{
+        const won=isWin(e);
+        const cellCls=won?'twin':cls;
+        const winBadge=won?`<div style="font-size:8px;color:var(--red);margin-top:1px">🏆 ${fmtAmt(e.amt*payoutMult(e),cur)}</div>`:'';
+        return `<div class="sum-num-cell ${cellCls}">
+          <div class="sum-num-nn">${e.num}</div>
+          <div class="sum-num-amt">${fmtAmt(e.amt,cur)}</div>
+          ${e.klap?'<div class="sum-num-klap">กลับ</div>':''}
+          ${winBadge}
+        </div>`;
+      }).join('');
+      sections+=`<div class="sum-section">
+        <div class="sum-section-title" style="color:${key==='2top'?'#7ab8f5':key==='2bot'?'#b8a0f0':'var(--amber)'}">${title}</div>
+        <div class="sum-num-grid">${cells}</div>
+      </div>`;
+    });
+
+    const profitCls=profit>=0?'pos':'neg';
+    const hasWin=winAmt>0;
+
+    return `<div class="sum-buyer-block">
+      <div class="sum-buyer-header">
+        <span class="sum-buyer-name">👤 ${name}</span>
+        <div class="sum-buyer-meta">
+          <span class="badge ${cur==='THB'?'bthb':'bkrw'}">${cur}</span>
+          <span style="font-size:11px;color:var(--text2)">${ce.length}건</span>
         </div>
       </div>
-      <div class="sum-card-footer">
-        <div class="sum-disc-row">
-          <span>ส่วนลด</span>
-          <input type="number" id="sum-inp-${did}" value="${discPct}" min="0" max="100" step="1" inputmode="numeric"
-            onchange="updateDiscountFromSummary('${did}',${sub},'${cur}','${name}')"/>
-          <span>%</span>
-          <span style="margin-left:4px;color:var(--red)" id="sum-val-${did}">- ${fmtAmt(discAmt,cur)}</span>
+      ${sections}
+      <div class="sum-footer">
+        <div class="sum-footer-row">
+          <span style="font-size:11px;color:var(--text2)">소계</span>
+          <span style="font-size:12px;color:var(--text1)">${fmtAmt(sub,cur)}</span>
         </div>
-        <div class="sum-total-row">
-          <span class="sum-total-label">합계</span>
-          <span class="sum-total-amt" id="sum-tot-${did}">${fmtAmt(total,cur)}</span>
+        <div class="sum-footer-row">
+          <div class="sum-disc-wrap">
+            <span>ส่วนลด</span>
+            <input type="number" id="sum-inp-${did}" value="${discPct}" min="0" max="100" step="1" inputmode="numeric"
+              onchange="updateDiscountFromSummary('${did}',${sub},'${cur}','${name}')"/>
+            <span>%</span>
+          </div>
+          <span style="font-size:11px;color:var(--red)" id="sum-val-${did}">- ${fmtAmt(discAmt,cur)}</span>
         </div>
+        <div class="sum-footer-row" style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
+          <span style="font-size:12px;color:var(--text1);font-weight:500">합계</span>
+          <span style="font-size:13px;font-weight:600;color:var(--acct)" id="sum-tot-${did}">${fmtAmt(total,cur)}</span>
+        </div>
+        ${hasWin?`
+        <div class="sum-footer-row" style="margin-top:4px">
+          <span style="font-size:11px;color:var(--red)">🏆 당첨금 지급</span>
+          <span style="font-size:12px;font-weight:600;color:var(--red)">- ${fmtAmt(winAmt,cur)}</span>
+        </div>
+        <div class="sum-footer-row" style="border-top:1px dashed #3a1a1a;padding-top:6px;margin-top:4px">
+          <span style="font-size:12px;font-weight:600;color:var(--text1)">순수익</span>
+          <span class="sum-profit ${profitCls}">${profit>=0?'':'- '}${fmtAmt(Math.abs(profit),cur)}</span>
+        </div>`:''}
       </div>
     </div>`;
   }
 
   const krwKeys=keys.filter(k=>k.cur==='KRW');
   const thbKeys=keys.filter(k=>k.cur==='THB');
-  let html='';
-  if(krwKeys.length) html+=`<div class="cur-section-label krw" style="margin-bottom:8px">₩ 원화 구매자</div><div class="summary-grid-cards">${krwKeys.map(k=>makeCard(k.name,k.cur)).join('')}</div>`;
-  if(thbKeys.length) html+=`<div class="cur-section-label thb" style="margin:8px 0">฿ 바트 구매자</div><div class="summary-grid-cards">${thbKeys.map(k=>makeCard(k.name,k.cur)).join('')}</div>`;
-  el.innerHTML=html;
+  let out='';
+  if(krwKeys.length) out+=`<div class="cur-section-label krw" style="margin-bottom:8px">₩ 원화 구매자</div>`+krwKeys.map(k=>makeBlock(k.name,k.cur)).join('');
+  if(thbKeys.length) out+=`<div class="cur-section-label thb" style="margin:8px 0">฿ 바트 구매자</div>`+thbKeys.map(k=>makeBlock(k.name,k.cur)).join('');
+  el.innerHTML=out;
 }
 
 function calcPayout(){
@@ -965,6 +1016,8 @@ function calcPayout(){
   const w3 =(document.getElementById('win-3top').value.trim()||'').padStart(3,'0');
   const r2=parseFloat(document.getElementById('rate-2').value)||70;
   const r3=parseFloat(document.getElementById('rate-3').value)||500;
+  // 당첨 결과 전역 저장 → 요약 탭 연동
+  payoutResult[currentSession]={w2t,w2b,w3,r2,r3};
   const entries=sessDayEntries();
   const wins=[];
   entries.forEach(e=>{
