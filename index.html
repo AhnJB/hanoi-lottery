@@ -380,7 +380,27 @@ tr.r3top:hover td{background:#2a1e00}
   .sum-tbl-hd{font-size:11px;padding:5px 12px}
   .sum-tbl-row{grid-template-columns:minmax(80px,1fr) repeat(5,minmax(70px,max-content))}
   .sum-tbl-hd{grid-template-columns:minmax(80px,1fr) repeat(5,minmax(70px,max-content))}
+  .rcpt-grid{grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  .sum-buyer-grid{grid-template-columns:1fr 1fr;gap:14px;align-items:start}
 }
+
+/* ── 영수증 요약: 구매자별 블록 ── */
+.sum-buyer-sec{background:var(--bg1);border:1px solid var(--bdr);border-radius:10px;overflow:hidden}
+.sum-buyer-sec-hd{display:flex;align-items:center;justify-content:space-between;padding:10px 13px;background:var(--bg2);border-bottom:1px solid var(--bdr)}
+.sum-buyer-sec-name{font-size:13px;font-weight:600;color:var(--t1)}
+.sum-buyer-sec-meta{display:flex;align-items:center;gap:7px;font-size:11px}
+.sum-buyer-sec-body{padding:10px 12px}
+.sum-type-grp{margin-bottom:10px}
+.sum-type-grp:last-child{margin-bottom:0}
+.sum-type-grp-lbl{font-size:9px;font-weight:700;padding:3px 8px;border-radius:4px;display:inline-block;margin-bottom:6px}
+.l2t{background:#0c1e38;color:#7ab8f5}
+.l2b{background:#160e2a;color:#b8a0f0}
+.l3t{background:#201600;color:var(--amb)}
+/* 구매자 그리드 — 기본 1열, PC에서 2열 */
+.sum-buyer-grid{display:grid;grid-template-columns:1fr;gap:12px}
+/* 영수증 카드 그리드 — 기본 1열, PC에서 2열 */
+.rcpt-grid{display:grid;grid-template-columns:1fr;gap:12px}
+.rcpt-grid .rcpt-blk{margin-bottom:0}
 </style>
 </head>
 <body>
@@ -1021,11 +1041,13 @@ function updDiscFromSum(did,sub,cur,name){
 }
 function syncSumDisc(did,sub,cur,name,pct){
   const da=sub*pct/100; const ad=sub-da;
+  // 요약 탭: si-=할인율 입력, st-=할인금액, sw-=합계, sf-=최종
   const si=document.getElementById('si-'+did);
-  const st=document.getElementById('st-'+did);
+  const st=document.getElementById('st-'+did); // 할인금액 표시
+  const sw=document.getElementById('sw-'+did); // 합계 표시
   if(si) si.value=pct;
-  if(st) st.textContent=fa(ad,cur);
-  // 최종 재계산
+  if(st) st.textContent='- '+fa(da,cur);
+  if(sw) sw.textContent=fa(ad,cur);
   recalcFinal(did,ad,cur,name);
 }
 function recalcFinal(did,afterDisc,cur,name){
@@ -1038,8 +1060,6 @@ function recalcFinal(did,afterDisc,cur,name){
     sf.textContent=fin>=0?fa(fin,cur):'- '+fa(Math.abs(fin),cur);
     sf.className='stv '+(fin>=0?'pp':'pn');
   }
-  const sw=document.getElementById('sw-'+did);
-  if(sw) sw.textContent=wAmt>0?'- '+fa(wAmt,cur):'0';
 }
 
 // ═══════════════════════════════════════════════════
@@ -1062,72 +1082,100 @@ function renderSummary(){
   const gd=parseFloat(document.getElementById('g-disc').value)||0;
   const pw=payRes[curSess]||{};
 
-  // 구매자×통화 순서 유지
-  const keys=[]; const seen=new Set();
-  es.forEach(e=>{const k=e.name+'|'+e.cur;if(!seen.has(k)){seen.add(k);keys.push({name:e.name,cur:e.cur});}});
+  // 구매자 순서 유지
+  const buyers=[]; const bseen=new Set();
+  es.forEach(e=>{ if(!bseen.has(e.name)){bseen.add(e.name);buyers.push(e.name);} });
 
-  // ── 유형별 번호 격자 ──────────────────────────────
-  const TYPE_DEFS=[
-    {key:'2top',sc:'c2t',hc:'h2t',lbl:'2ตัวบน (2자리 위)'},
-    {key:'2bot',sc:'c2b',hc:'h2b',lbl:'2ตัวล่าง (2자리 아래)'},
-    {key:'3top',sc:'c3t',hc:'h3t',lbl:'3ตัวบน (3자리)'},
-  ];
-  let gridHtml='';
-  TYPE_DEFS.forEach(({key,sc,hc,lbl})=>{
-    const typeEs=es.filter(e=>e.type===key);
-    if(!typeEs.length) return;
-    const cells=typeEs.map(e=>{
-      const won=isWin(e,pw);
-      const cc=won?'cwin':sc;
-      const winBadge=won?`<div style="font-size:8px;color:#f07070;margin-top:1px">🏆 ${fa(e.amt*payMult(e,pw),e.cur)}</div>`:'';
-      return `<div class="sum-cell ${cc}">
-        <div class="sc-name">${e.name}</div>
-        <div class="sc-num">${e.num}</div>
-        <div class="sc-sub">${fa(e.amt,e.cur)}${e.klap?'<br><span class="sc-klap">กลับ</span>':''}${winBadge}</div>
-      </div>`;
-    }).join('');
-    gridHtml+=`<div class="sum-sec">
-      <div class="sum-sec-hd ${hc}">${lbl}</div>
-      <div class="sum-grid">${cells}</div>
-    </div>`;
-  });
+  // 통화별로 구매자 블록 생성
+  const curs=[...new Set(es.map(e=>e.cur))];
 
-  // ── 구매자별 합계 테이블 ──────────────────────────
-  let tableHtml='';
-  const curs=[...new Set(keys.map(k=>k.cur))];
-  curs.forEach(cur=>{
-    const curKeys=keys.filter(k=>k.cur===cur);
-    if(!curKeys.length) return;
-    tableHtml+=`<div class="cur-lbl ${cur==='THB'?'thb':'krw'}" style="margin:12px 0 6px">${cur==='THB'?'฿ 바트 구매자':'₩ 원화 구매자'}</div>
-    <div class="sum-tbl-hd">
-      <span>구매자</span><span>구매총액</span><span>할인율</span><span>할인 후</span><span>당첨금</span><span>최종</span>
-    </div>
-    <div>`;
-    curKeys.forEach(({name,cur:c})=>{
-      const ce=es.filter(e=>e.name===name&&e.cur===c);
-      const sub=ce.reduce((s,e)=>s+e.amt,0);
-      const did='d-'+name.replace(/\W/g,'')+'-'+c;
-      const sv=discMap[dkForName(name,c)]; const dp=sv!==undefined?sv:gd;
-      const da=sub*dp/100; const ad=sub-da;
-      const wAmt=ce.filter(e=>isWin(e,pw)).reduce((s,e)=>s+e.amt*payMult(e,pw),0);
-      const fin=ad-wAmt;
-      tableHtml+=`<div class="sum-tbl-row">
-        <span class="stn">👤 ${name}</span>
-        <span class="stv">${fa(sub,c)}</span>
-        <span class="disc-sm">
-          <input type="number" id="si-${did}" value="${dp}" min="0" max="100" step="1" inputmode="numeric"
-            onchange="updDiscFromSum('${did}',${sub},'${c}','${name}')"/>
-          <span>%</span>
-        </span>
-        <span class="stv acc" id="st-${did}">${fa(ad,c)}</span>
-        <span class="stv red" id="sw-${did}">${wAmt>0?'- '+fa(wAmt,c):'0'}</span>
-        <span class="stv ${fin>=0?'pp':'pn'}" id="sf-${did}">${fin>=0?fa(fin,c):'- '+fa(Math.abs(fin),c)}</span>
+  function makeBuyerBlock(name, cur){
+    const ce=es.filter(e=>e.name===name&&e.cur===cur);
+    if(!ce.length) return '';
+    const sub=ce.reduce((s,e)=>s+e.amt,0);
+    const did='d-'+name.replace(/\W/g,'')+'-'+cur;
+    const sv=discMap[dkForName(name,cur)]; const dp=sv!==undefined?sv:gd;
+    const da=sub*dp/100; const ad=sub-da;
+    const wAmt=ce.filter(e=>isWin(e,pw)).reduce((s,e)=>s+e.amt*payMult(e,pw),0);
+    const fin=ad-wAmt;
+
+    // 유형별 번호 박스 그룹
+    const TYPE_DEFS=[
+      {key:'2top', cc:'c2t', lbl:'2ตัวบน', lcls:'l2t'},
+      {key:'2bot', cc:'c2b', lbl:'2ตัวล่าง', lcls:'l2b'},
+      {key:'3top', cc:'c3t', lbl:'3ตัวบน', lcls:'l3t'},
+    ];
+    let typeGroups='';
+    TYPE_DEFS.forEach(({key,cc,lbl,lcls})=>{
+      const items=ce.filter(e=>e.type===key);
+      if(!items.length) return;
+      const cells=items.map(e=>{
+        const won=isWin(e,pw);
+        const cellCls=won?'cwin':cc;
+        const winBadge=won?`<div style="font-size:8px;color:#f07070;margin-top:1px">🏆${fa(e.amt*payMult(e,pw),cur)}</div>`:'';
+        return `<div class="sum-cell ${cellCls}">
+          <div class="sc-num">${e.num}</div>
+          <div class="sc-sub">${fa(e.amt,cur)}${e.klap?'<br><span class="sc-klap">กลับ</span>':''}${winBadge}</div>
+        </div>`;
+      }).join('');
+      typeGroups+=`<div class="sum-type-grp">
+        <div class="sum-type-grp-lbl ${lcls}">${lbl}</div>
+        <div class="sum-grid">${cells}</div>
       </div>`;
     });
-    tableHtml+='</div>';
-  });
 
-  el.innerHTML=gridHtml+tableHtml;
+    // 푸터 요약
+    const profCls=fin>=0?'pp':'pn';
+    const footer=`<div style="border-top:1px solid var(--bdr);margin-top:8px;padding-top:8px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+        <span style="color:var(--t2)">소계</span><span style="color:var(--t1)">${fa(sub,cur)}</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-bottom:4px">
+        <span class="disc-sm" style="color:var(--t2)">ส่วนลด <input type="number" id="si-${did}" value="${dp}" min="0" max="100" step="1" inputmode="numeric" onchange="updDiscFromSum('${did}',${sub},'${cur}','${name}')"/> %</span>
+        <span style="color:var(--red)" id="st-${did}">- ${fa(da,cur)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;border-top:1px solid var(--bdr);padding-top:6px;margin-top:2px">
+        <span style="color:var(--t1)">합계</span>
+        <span style="color:var(--acct)" id="sw-${did}">${fa(ad,cur)}</span>
+      </div>
+      ${wAmt>0?`<div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px">
+        <span style="color:var(--red)">🏆 당첨금</span>
+        <span style="color:var(--red)">- ${fa(wAmt,cur)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px dashed #3a1a1a;padding-top:5px;margin-top:4px">
+        <span style="color:var(--t1)">최종</span>
+        <span class="stv ${profCls}" id="sf-${did}">${fin>=0?fa(fin,cur):'- '+fa(Math.abs(fin),cur)}</span>
+      </div>`:`<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px solid var(--bdr);padding-top:5px;margin-top:4px">
+        <span style="color:var(--t1)">최종</span>
+        <span class="stv ${profCls}" id="sf-${did}">${fa(fin,cur)}</span>
+      </div>`}
+    </div>`;
+
+    return `<div class="sum-buyer-sec">
+      <div class="sum-buyer-sec-hd">
+        <span class="sum-buyer-sec-name">👤 ${name}</span>
+        <div class="sum-buyer-sec-meta">
+          <span class="bdg ${cur==='THB'?'bthb':'bkrw'}">${cur}</span>
+          <span style="color:var(--t2)">${ce.length}건</span>
+        </div>
+      </div>
+      <div class="sum-buyer-sec-body">
+        ${typeGroups}
+        ${footer}
+      </div>
+    </div>`;
+  }
+
+  let out='';
+  curs.forEach(cur=>{
+    const curBuyers=buyers.filter(n=>es.some(e=>e.name===n&&e.cur===cur));
+    if(!curBuyers.length) return;
+    out+=`<div class="cur-lbl ${cur==='THB'?'thb':'krw'}" style="margin-bottom:8px">${cur==='THB'?'฿ 바트 구매자':'₩ 원화 구매자'}</div>`;
+    out+=`<div class="sum-buyer-grid">`;
+    curBuyers.forEach(name=>{ out+=makeBuyerBlock(name,cur); });
+    out+=`</div>`;
+  });
+  el.innerHTML=out;
 }
 
 // ═══════════════════════════════════════════════════
